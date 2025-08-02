@@ -21,6 +21,7 @@ def check_unconscious(frame):
     Check for unconscious/fallen person in the given frame
     Returns True if unconscious person is detected, False otherwise
     """
+    print("Check Unconscious")
     try:
         if not load_model():
             return False

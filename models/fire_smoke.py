@@ -6,6 +6,7 @@ def check_fire_smoke(frame):
     Check for fire/smoke in the given frame
     Returns True if fire/smoke is detected, False otherwise
     """
+    print("Smoke detect")
     try:
         # Resize frame for processing
         frame_resized = cv2.resize(frame, (1000, 600))

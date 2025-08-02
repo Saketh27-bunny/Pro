@@ -2,9 +2,18 @@ import streamlit as st
 import cv2
 import time
 import threading
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 from models.fire_smoke import check_fire_smoke
 from models.crowd_surge import check_crowd_surge
 from models.unconscious import check_unconscious
+
+# Add this import at the top (after other imports)
+try:
+    from chatbot import EventMonitorChatbot
+    CHATBOT_AVAILABLE = True
+except ImportError:
+    CHATBOT_AVAILABLE = False
 
 # Page configuration
 st.set_page_config(
@@ -90,6 +99,47 @@ with st.sidebar:
         st.session_state.monitoring_active = not st.session_state.monitoring_active
         st.rerun()
 
+    # --- AI Assistant Section ---
+    st.markdown("---")
+    st.subheader("🤖 AI Assistant")
+    if CHATBOT_AVAILABLE:
+        # Initialize chatbot in session state
+        if 'chatbot' not in st.session_state:
+            import os
+            api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+            if api_key and api_key != "your_gemini_api_key_here":
+                st.session_state.chatbot = EventMonitorChatbot(api_key)
+            else:
+                st.warning("⚠️ Please set your Gemini API key in Streamlit secrets or environment variable GEMINI_API_KEY")
+                st.info("To set up: Create a .streamlit/secrets.toml file with: GEMINI_API_KEY = 'your_actual_api_key'")
+        # Chat history
+        if 'chat_history' not in st.session_state:
+            st.session_state.chat_history = []
+        # Display chat history
+        for message in st.session_state.chat_history:
+            if message['role'] == 'user':
+                st.markdown(f"**You:** {message['content']}")
+            else:
+                st.markdown(f"**Assistant:** {message['content']}")
+        # Chat input
+        user_input = st.text_input("Ask the AI Assistant:", key="chatbot_input", placeholder="e.g., Show me today's alert statistics")
+        if st.button("Send", key="chatbot_send"):
+            if user_input:
+                st.session_state.chat_history.append({'role': 'user', 'content': user_input})
+                with st.spinner("🤖 Thinking..."):
+                    # Pass alert_counts and any other live data to the chatbot
+                    alert_counts = st.session_state.get('alert_counts', {})
+                    crowd_density_quadrants = st.session_state.get('crowd_density_quadrants', {})
+                    response = st.session_state.chatbot.process_query(
+                        user_input,
+                        alert_counts=alert_counts,
+                        crowd_density_quadrants=crowd_density_quadrants
+                    )
+                st.session_state.chat_history.append({'role': 'assistant', 'content': response})
+                st.experimental_rerun()
+    else:
+        st.info("🤖 AI Assistant not available. Install: pip install google-generativeai")
+
 # Main content area
 col1, col2 = st.columns([3, 1])
 
@@ -115,8 +165,15 @@ with col2:
 def get_camera_index(source_text):
     return int(source_text.split("(")[1].split(")")[0])
 
+def process_frame_with_model(frame, model_func):
+    """Helper function to run a detection model on a frame"""
+    try:
+        return model_func(frame)
+    except Exception as e:
+        st.error(f"Error in {model_func.__name__}: {str(e)}")
+        return False
+
 def main_monitoring_loop():
-    """Main monitoring loop with all three detection systems"""
     camera_index = get_camera_index(camera_source)
     cap = cv2.VideoCapture(camera_index)
     
@@ -137,91 +194,113 @@ def main_monitoring_loop():
     frame_count = 0
     start_time = time.time()
     
-    while st.session_state.monitoring_active:
-        ret, frame = cap.read()
-        if not ret:
-            st.warning("⚠️ Failed to read frame from camera.")
-            break
-        
-        frame_count += 1
-        
-        # Resize frame for display
-        display_frame = cv2.resize(frame, (720, 480))
-        
-        # Run detection models (every 5 frames to improve performance)
-        if frame_count % 5 == 0:
-            try:
-                # Run detections in parallel for better performance
-                fire_detected = check_fire_smoke(frame)
-                crowd_detected = check_crowd_surge(frame)
-                unconscious_detected = check_unconscious(frame)
+    # Create thread pool for parallel processing
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        while st.session_state.monitoring_active:
+            ret, frame = cap.read()
+            if not ret:
+                st.warning("⚠️ Failed to read frame from camera.")
+                break
+            
+            frame_count += 1
+            
+            # Resize frame for display
+            display_frame = cv2.resize(frame, (720, 480))
+            
+            # Run detection models (every 5 frames to improve performance)
+            if frame_count % 5 == 0:
+                try:
+                    # Run all detections in parallel using thread pool
+                    future_fire = executor.submit(process_frame_with_model, frame.copy(), check_fire_smoke)
+                    future_crowd = executor.submit(process_frame_with_model, frame.copy(), check_crowd_surge)
+                    future_unconscious = executor.submit(process_frame_with_model, frame.copy(), check_unconscious)
+                    
+                    # Wait for all detections to complete
+                    fire_detected = future_fire.result()
+                    crowd_detected = future_crowd.result()
+                    unconscious_detected = future_unconscious.result()
+                    
+                    # Update alert counts
+                    if fire_detected:
+                        st.session_state.alert_counts['fire'] += 1
+                    if crowd_detected:
+                        st.session_state.alert_counts['crowd'] += 1
+                    if unconscious_detected:
+                        st.session_state.alert_counts['unconscious'] += 1
+                    
+                    # Update quadrant data if crowd detected
+                    if crowd_detected:
+                        # Divide frame into quadrants and analyze crowd density
+                        height, width = frame.shape[:2]
+                        mid_x, mid_y = width // 2, height // 2
+                        
+                        # Example: Calculate crowd density per quadrant
+                        # Replace this with your actual crowd density calculation logic
+                        st.session_state.crowd_density_quadrants = {
+                            "Northeast": crowd_detected and random.randint(0, 30),
+                            "Northwest": crowd_detected and random.randint(0, 30),
+                            "Southeast": crowd_detected and random.randint(0, 30),
+                            "Southwest": crowd_detected and random.randint(0, 30)
+                        }
+                    
+                    # Update status indicators
+                    fire_status.markdown(f"""
+                    <div class="alert-box {'alert-danger' if fire_detected else 'alert-success'}">
+                        <span class="status-indicator {'status-active' if fire_detected else 'status-inactive'}"></span>
+                        🔥 Fire/Smoke<br>
+                        {'🟥 ALERT DETECTED' if fire_detected else '🟩 All Clear'}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    crowd_status.markdown(f"""
+                    <div class="alert-box {'alert-danger' if crowd_detected else 'alert-success'}">
+                        <span class="status-indicator {'status-active' if crowd_detected else 'status-inactive'}"></span>
+                        🚨 Crowd Surge<br>
+                        {'🟥 ALERT DETECTED' if crowd_detected else '🟩 All Clear'}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    unconscious_status.markdown(f"""
+                    <div class="alert-box {'alert-danger' if unconscious_detected else 'alert-success'}">
+                        <span class="status-indicator {'status-active' if unconscious_detected else 'status-inactive'}"></span>
+                        🧍‍♂️ Unconscious<br>
+                        {'🟥 ALERT DETECTED' if unconscious_detected else '🟩 All Clear'}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Update alert panel
+                    alerts = []
+                    if fire_detected:
+                        alerts.append("🔥 **FIRE/SMOKE DETECTED** - Immediate evacuation required!")
+                    if crowd_detected:
+                        alerts.append("🚨 **CROWD SURGE DETECTED** - Crowd control needed!")
+                    if unconscious_detected:
+                        alerts.append("🧍‍♂️ **UNCONSCIOUS PERSON DETECTED** - Medical attention required!")
+                    
+                    if alerts:
+                        alert_placeholder.markdown("### 🚨 ACTIVE ALERTS\n" + "\n\n".join(alerts))
+                    else:
+                        alert_placeholder.markdown("### ✅ All Systems Normal\nNo alerts detected.")
                 
-                # Update alert counts
-                if fire_detected:
-                    st.session_state.alert_counts['fire'] += 1
-                if crowd_detected:
-                    st.session_state.alert_counts['crowd'] += 1
-                if unconscious_detected:
-                    st.session_state.alert_counts['unconscious'] += 1
-                
-                # Update status indicators
-                fire_status.markdown(f"""
-                <div class="alert-box {'alert-danger' if fire_detected else 'alert-success'}">
-                    <span class="status-indicator {'status-active' if fire_detected else 'status-inactive'}"></span>
-                    🔥 Fire/Smoke<br>
-                    {'🟥 ALERT DETECTED' if fire_detected else '🟩 All Clear'}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                crowd_status.markdown(f"""
-                <div class="alert-box {'alert-danger' if crowd_detected else 'alert-success'}">
-                    <span class="status-indicator {'status-active' if crowd_detected else 'status-inactive'}"></span>
-                    🚨 Crowd Surge<br>
-                    {'🟥 ALERT DETECTED' if crowd_detected else '🟩 All Clear'}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                unconscious_status.markdown(f"""
-                <div class="alert-box {'alert-danger' if unconscious_detected else 'alert-success'}">
-                    <span class="status-indicator {'status-active' if unconscious_detected else 'status-inactive'}"></span>
-                    🧍‍♂️ Unconscious<br>
-                    {'🟥 ALERT DETECTED' if unconscious_detected else '🟩 All Clear'}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Update alert panel
-                alerts = []
-                if fire_detected:
-                    alerts.append("🔥 **FIRE/SMOKE DETECTED** - Immediate evacuation required!")
-                if crowd_detected:
-                    alerts.append("🚨 **CROWD SURGE DETECTED** - Crowd control needed!")
-                if unconscious_detected:
-                    alerts.append("🧍‍♂️ **UNCONSCIOUS PERSON DETECTED** - Medical attention required!")
-                
-                if alerts:
-                    alert_placeholder.markdown("### 🚨 ACTIVE ALERTS\n" + "\n\n".join(alerts))
-                else:
-                    alert_placeholder.markdown("### ✅ All Systems Normal\nNo alerts detected.")
-                
-            except Exception as e:
-                st.error(f"Error in detection models: {e}")
-        
-        # Add monitoring overlay to frame
-        cv2.putText(display_frame, "AI Monitoring Active", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Calculate and display FPS
-        elapsed_time = time.time() - start_time
-        if elapsed_time > 0:
-            fps = frame_count / elapsed_time
-            cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
-        # Display the frame
-        video_placeholder.image(display_frame, channels="BGR", use_column_width=True)
-        
-        # Small delay to control frame rate
-        time.sleep(0.03)  # ~30 FPS
+                except Exception as e:
+                    st.error(f"Error in detection models: {str(e)}")
+            
+            # Add monitoring overlay to frame
+            cv2.putText(display_frame, "AI Monitoring Active", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # Calculate and display FPS
+            elapsed_time = time.time() - start_time
+            if elapsed_time > 0:
+                fps = frame_count / elapsed_time
+                cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            # Display the frame
+            video_placeholder.image(display_frame, channels="BGR", use_column_width=True)
+            
+            # Small delay to control frame rate
+            time.sleep(0.03)  # ~30 FPS
     
     cap.release()
 
@@ -245,3 +324,33 @@ if 'alert_counts' in st.session_state:
         st.metric("Crowd Surge Alerts", st.session_state.alert_counts['crowd'])
     with col3:
         st.metric("Unconscious Person Alerts", st.session_state.alert_counts['unconscious'])
+
+# Remove the process_query function from this file if present.
+# The chatbot logic should be in chatbot.py, not here.
+# If you want to support more detailed answers (like "crowd density in the Northeast direction"),
+# you must collect and store that data in st.session_state during detection, then pass it to the chatbot.
+
+# Example: Pass quadrant data to chatbot (add this to your detection loop if you have quadrant logic)
+# st.session_state['crowd_density_quadrants'] = {
+#     "Northeast": 12,
+#     "Northwest": 8,
+#     "Southeast": 5,
+#     "Southwest": 3
+# }
+
+# Then, in the chatbot section (already present in your sidebar):
+# response = st.session_state.chatbot.process_query(
+#     user_input,
+#     alert_counts=alert_counts,
+#     crowd_density_quadrants=st.session_state.get('crowd_density_quadrants', {})
+# )
+
+# Make sure your chatbot.py's process_query method uses the crowd_density_quadrants argument:
+# def process_query(self, query, alert_counts=None, crowd_density_quadrants=None, ...):
+#     if "northeast" in query.lower() and crowd_density_quadrants:
+#         value = crowd_density_quadrants.get("Northeast")
+#         if value is not None:
+#             return f"Crowd density in the Northeast direction: {value}"
+#         else:
+#             return "No crowd density data for the Northeast direction right now."
+#     # ...other logic...

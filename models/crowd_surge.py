@@ -21,6 +21,7 @@ def check_crowd_surge(frame):
     Check for crowd surge in the given frame
     Returns True if crowd surge is detected, False otherwise
     """
+    print("Crowd surge")
     try:
         if not load_model():
             return False

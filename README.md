@@ -1,15 +1,18 @@
 # 🎥 AI Event Monitoring Dashboard
 
-A real-time AI-powered crowd management and event monitoring system that detects fire/smoke, crowd surges, and unconscious persons using computer vision and machine learning.
+A real-time AI-powered crowd management and event monitoring system with **secure admin authentication** that detects fire/smoke, crowd surges, and unconscious persons using computer vision and machine learning.
 
 ## 🚀 Features
 
+- **🔐 Secure Authentication**: Admin login system with session management
 - **🔥 Fire/Smoke Detection**: Real-time detection of fire and smoke using color-based analysis
 - **🚨 Crowd Surge Detection**: Monitors crowd density using YOLOv8 object detection with grid-based analysis
 - **🧍‍♂️ Unconscious Person Detection**: Detects fallen or unconscious persons using pose analysis
 - **📊 Real-time Dashboard**: Beautiful Streamlit interface with live video feed and alert system
 - **⚙️ Configurable Settings**: Adjustable detection sensitivity and camera selection
 - **📈 Statistics Tracking**: Monitor detection counts and system performance
+- **👑 Admin Panel**: User management, audit logging, and system administration
+- **🔒 Security Features**: Password hashing, session management, access control
 
 ## 🛠️ Installation
 
@@ -35,26 +38,40 @@ A real-time AI-powered crowd management and event monitoring system that detects
    python test_models.py
    ```
 
-4. **Run the dashboard**
+4. **Run the system**
    ```bash
-   streamlit run main_dashboard.py
+   streamlit run run_system.py
    ```
+
+## 🔐 Authentication
+
+### Default Admin Credentials
+- **Username**: `admin`
+- **Password**: `admin123`
+
+### Security Features
+- **Password Hashing**: SHA-256 encryption
+- **Session Management**: 8-hour session timeout
+- **Audit Logging**: All actions are logged
+- **Access Control**: Role-based permissions
 
 ## 🎯 Usage
 
-### Starting the Dashboard
+### Starting the System
 
-1. Run the main dashboard:
+1. **Run the launcher:**
    ```bash
-   streamlit run main_dashboard.py
+   streamlit run run_system.py
    ```
 
-2. The dashboard will open in your web browser (usually at `http://localhost:8501`)
+2. **Access the login page:**
+   - Go to `http://localhost:8501`
+   - Click "Go to Login" or navigate to the login page
 
-3. Use the sidebar controls to:
-   - Select camera source
-   - Adjust detection sensitivity
-   - Start/stop monitoring
+3. **Authenticate as admin:**
+   - Enter username: `admin`
+   - Enter password: `admin123`
+   - Click "Login"
 
 ### Dashboard Interface
 
@@ -62,6 +79,27 @@ A real-time AI-powered crowd management and event monitoring system that detects
 - **🚨 Alert Panel**: Shows active alerts and system status
 - **📊 Statistics**: Tracks detection counts and performance metrics
 - **⚙️ Controls**: Camera selection and sensitivity settings
+- **👤 User Management**: Admin features for user management
+
+### Admin Features
+
+#### User Management
+- Add new users (admin/standard)
+- Delete existing users
+- View all users and their roles
+- Manage user permissions
+
+#### Audit Logging
+- View all system activities
+- Track user actions
+- Monitor login attempts
+- Export audit data
+
+#### System Settings
+- Configure security settings
+- Manage session timeouts
+- System maintenance tools
+- Backup and restore
 
 ### Detection Models
 
@@ -84,27 +122,38 @@ A real-time AI-powered crowd management and event monitoring system that detects
 
 ### Detection Sensitivity
 - **Fire Detection**: Adjust threshold (1000-5000) for fire/smoke sensitivity
-- **Crowd Surge**: Set threshold (1-5) for maximum people per grid segment
+- **Crowd Surge**: Set threshold (1-10) for maximum people per grid segment
 
 ### Camera Settings
 - Select from multiple camera sources (0, 1, 2)
 - Automatic camera detection and fallback
 
+### Security Settings
+- Session timeout configuration
+- Password policy settings
+- Login attempt limits
+- Two-factor authentication (coming soon)
+
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **Camera not working**
+1. **Authentication problems**
+   - Verify default credentials: admin/admin123
+   - Check if database file exists
+   - Clear browser cache and cookies
+
+2. **Camera not working**
    - Check if camera is connected and not in use by another application
    - Try different camera indices (0, 1, 2)
    - Ensure camera permissions are granted
 
-2. **Models not loading**
+3. **Models not loading**
    - Ensure all dependencies are installed: `pip install -r requirements.txt`
    - Check internet connection (models are downloaded automatically)
    - Verify CUDA installation if using GPU
 
-3. **Performance issues**
+4. **Performance issues**
    - Reduce detection frequency by modifying the frame skip in `main_dashboard.py`
    - Use a smaller YOLO model (change `yolov8n.pt` to `yolov8s.pt` for faster inference)
    - Ensure adequate CPU/GPU resources
@@ -126,22 +175,29 @@ This will test:
 
 ```
 event_monitor_dashboard/
-├── main_dashboard.py          # Main Streamlit dashboard
-├── test_models.py            # Test script for all models
-├── requirements.txt          # Python dependencies
+├── run_system.py           # Main launcher script
+├── login.py               # Authentication login page
+├── main_dashboard.py      # Main monitoring dashboard
+├── admin_panel.py         # Admin management panel
+├── auth_utils.py          # Authentication utilities
+├── test_models.py         # Test script for all models
+├── requirements.txt       # Python dependencies
+├── README.md             # This file
 └── models/
-    ├── __init__.py          # Package initialization
-    ├── fire_smoke.py        # Fire/smoke detection model
-    ├── crowd_surge.py       # Crowd surge detection model
-    └── unconscious.py       # Unconscious person detection model
+    ├── __init__.py       # Package initialization
+    ├── fire_smoke.py     # Fire/smoke detection model
+    ├── crowd_surge.py    # Crowd surge detection model
+    └── unconscious.py    # Unconscious person detection model
 ```
 
 ## 🔒 Security Considerations
 
-- This system is designed for monitoring and alerting purposes
-- Ensure compliance with local privacy laws and regulations
-- Consider implementing data retention policies
-- Secure camera feeds and detection data appropriately
+- **Change default credentials** immediately after first login
+- **Use strong passwords** for admin accounts
+- **Regularly review audit logs** for suspicious activity
+- **Implement network security** (firewall, VPN) for production deployment
+- **Backup authentication database** regularly
+- **Monitor session activity** for unauthorized access
 
 ## 🤝 Contributing
 
@@ -151,6 +207,8 @@ To improve the system:
 2. Adjust detection thresholds for your specific use case
 3. Add new detection models as needed
 4. Improve the UI/UX based on user feedback
+5. Enhance security features
+6. Add additional admin capabilities
 
 ## 📄 License
 
@@ -164,7 +222,8 @@ If you encounter issues:
 2. Run the test script to identify specific problems
 3. Verify all dependencies are correctly installed
 4. Check camera permissions and connectivity
+5. Review authentication database integrity
 
 ---
 
-**🎉 Enjoy your AI-powered event monitoring system!** 
+**🎉 Enjoy your secure AI-powered event monitoring system!** 
